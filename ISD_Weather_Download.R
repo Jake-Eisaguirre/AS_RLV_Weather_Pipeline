@@ -4,7 +4,6 @@ if (!require(librarian)){
   install.packages("librarian")
   library(librarian)
 }
-
 librarian::shelf(rnoaa, tidyverse, lubridate, rvest, here)
 
 airports_dim <- read_csv(here("airport_codes", "AIRPORT_DIM.csv")) %>% 
@@ -12,7 +11,7 @@ airports_dim <- read_csv(here("airport_codes", "AIRPORT_DIM.csv")) %>%
 
 airports <- read_csv(here("airport_codes", "airports.csv"))
 
-dest <- inner_join(airports_dim, airports) %>% 
+dest <- inner_join(airports_dim, airports, by = "code") %>% 
   select(code, icao, CITY_NAME, COUNTRY, name)
 
 # Integrated Surface Database (ISD) compiled by NCDC within NOAA
@@ -141,5 +140,15 @@ if (nrow(all_weather_data) == 0) {
   print("Data summarization completed successfully.")
 }
 
+airport_code <- dest %>% 
+  select(code, icao)
 
+all_weather_data <- all_weather_data %>% 
+  left_join(airport_code, by = "icao") %>% 
+  select(!c(usaf_station, wban_station)) %>% 
+  relocate(code, .after = date)
+
+# 136 stations contain data, could in the future use the lat long to geo_join to look for other nearby weather stations
 write_csv(all_weather_data, here("data", "all_weather_data.csv"))
+
+
