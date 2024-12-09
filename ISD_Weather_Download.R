@@ -4,6 +4,7 @@ if (!require(librarian)){
   install.packages("librarian")
   library(librarian)
 }
+
 librarian::shelf(rnoaa, tidyverse, lubridate, rvest, here)
 
 airports_dim <- read_csv(here("airport_codes", "AIRPORT_DIM.csv")) %>% 
