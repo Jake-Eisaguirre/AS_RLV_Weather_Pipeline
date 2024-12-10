@@ -150,6 +150,6 @@ all_weather_data <- all_weather_data %>%
   relocate(code, .after = date)
 
 # 136 stations contain data, could in the future use the lat long to geo_join to look for other nearby weather stations
-write_csv(all_weather_data, here("data", "all_weather_data.csv"))
+write_csv(all_weather_data, here("data", "daily_min_max", "all_weather_data.csv"))
 
 

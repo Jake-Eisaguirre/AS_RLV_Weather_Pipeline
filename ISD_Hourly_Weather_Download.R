@@ -17,6 +17,9 @@ dest <- inner_join(airports_dim, airports, by = "code") %>%
 
 # Integrated Surface Database (ISD) compiled by NCDC within NOAA
 #https://www.ncei.noaa.gov/products/land-based-station/integrated-surface-database
+#
+
+options(rnoaa_cache_path = here("raw_cached_data"))
 
 # Get a list of available ISD stations
 stations <- isd_stations() %>% 
@@ -40,6 +43,13 @@ for (i in 1:nrow(stations)) {
         message(paste("No data for station:", stations$station_name[i], "in year:", year))
         next
       }
+      
+      required_columns <- c("AA1_depth", "GA1_coverage_code")
+      missing_columns <- setdiff(required_columns, colnames(station_data))
+      for (col in missing_columns) {
+        station_data[[col]] <- NA
+      }
+      
       
       # Process the data
       station_data <- station_data %>%
@@ -105,8 +115,25 @@ for (file in file_list) {
     # Read the current file
     station_data <- read_csv(file)
     
+    combined_data_d <- station_data %>%
+      mutate(
+        time = str_pad(time, width = 4, pad = "0"),
+        time = paste0(substr(time, 1, 2), ":", substr(time, 3, 4)),
+        hour = as.numeric(substr(time, 1, 2))) %>% 
+      group_by(date, icao, hour) %>% 
+      reframe(
+        temperature_c = round(mean(temperature), 2),
+        dewpoint_c = round(mean(temperature_dewpoint),2),
+        wind_speed_ms = round(mean(wind_speed),2),
+        ceiling_height_m = round(mean(ceiling_height),2),
+        visibility_m = round(mean(visibility_distance),2),
+        air_pressure_ = round(mean(air_pressure),2),
+        precip_mm = round(mean(precip_mm),2),
+        sky_cover_percent = round(mean(sky_cover_percent),2)
+      )
+    
     # Bind to the combined data frame
-    combined_data <- bind_rows(combined_data, station_data)
+    combined_data <- bind_rows(combined_data, combined_data_d)
     
     message(paste("Added data from:", file))
   }, error = function(e) {
@@ -114,3 +141,21 @@ for (file in file_list) {
   })
 }
 
+write_csv(combined_data, here("data", "hourly", "hourly_weather_data.csv"))
+                
+# # Define paths
+# default_cache_path <- tools::file_path_as_absolute("C:/Users/025883/AppData/Local/R/cache/R/rnoaa/noaa_isd")
+# desired_cache_path <- here("raw_cached_data")
+# 
+# 
+# # Get a list of all files in the default cache folder
+# cached_files <- list.files(default_cache_path, full.names = TRUE)
+# 
+# # Move each file to the desired cache folder
+# for (file in cached_files) {
+#   new_file_location <- file.path(desired_cache_path, basename(file))
+#   file.rename(file, new_file_location)
+#   message(paste("Moved file to:", new_file_location))
+# }            
+#                 
+                
