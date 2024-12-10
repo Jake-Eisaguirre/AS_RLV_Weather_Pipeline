@@ -22,7 +22,21 @@ dest <- inner_join(airports_dim, airports, by = "code") %>%
 stations <- isd_stations() %>% 
   filter(!usaf == "999999",
          !wban == "99999") %>%
-  filter(icao %in% dest$icao)
+  filter(icao %in% dest$icao) %>% 
+  mutate(timezone = tz_lookup_coords(lat, lon, method = "fast"))
+
+t_zone <- stations %>% 
+  select(icao, timezone)
+
+tz_off_set <- tz_list() %>% 
+  select(tz_name, is_dst, utc_offset_h) %>% 
+  filter(tz_name %in% unique(t_zone$timezone))
+
+# Define DST cutoff dates for 2023 and 2024
+dst_start_2023 <- as.Date("2023-03-12")
+dst_end_2023 <- as.Date("2023-11-05")
+dst_start_2024 <- as.Date("2024-03-10")
+dst_end_2024 <- as.Date("2024-11-03")
 
 # Initialize an empty data frame to store results
 all_weather_data <- data.frame()
@@ -96,13 +110,33 @@ for (i in 1:nrow(stations)) {
           precip_mm = if_else(precip_mm == 999.9, NA_real_, precip_mm),
           sky_cover_percent = if_else(sky_cover_percent == 99, NA_real_, sky_cover_percent)
         ) %>%
-        select(date, usaf_station, wban_station, year, icao, temperature, temperature_dewpoint,
+        select(date, time, usaf_station, wban_station, year, icao, temperature, temperature_dewpoint,
                wind_speed, ceiling_height, visibility_distance, air_pressure,
-               precip_mm, sky_cover_percent)
+               precip_mm, sky_cover_percent) %>% 
+        mutate(
+          time = str_pad(time, width = 4, pad = "0"),  # Pad time to ensure 4 digits
+          time = paste0(substr(time, 1, 2), ":", substr(time, 3, 4)),  # Format time as HH:MM
+          hour = as.numeric(substr(time, 1, 2))  # Extract the hour as a numeric value
+        ) %>% 
+        #mutate(time = sprintf("%02d:00", time)) %>% 
+        rename(time_utc = time) %>% 
+        mutate(
+          date = as.Date(date),  # Ensure date column is in Date format
+          is_dst = if_else((date >= dst_start_2023 & date <= dst_end_2023) | 
+                             (date >= dst_start_2024 & date <= dst_end_2024),
+                           TRUE,
+                           FALSE)) %>% 
+        inner_join(t_zone, by = c("icao")) %>% 
+        inner_join(tz_off_set, by = c("timezone" = "tz_name", "is_dst")) %>% 
+        mutate(utc_date_time = as.POSIXct(paste(date, time_utc), format = "%Y-%m-%d %H:%M", tz = "UTC"),
+               local_date_time = utc_date_time + hours(utc_offset_h)) %>% 
+        relocate(local_date_time, .before = date) %>% 
+        select(!c(time_utc)) %>% 
+        mutate(date = as.Date(local_date_time))
       
       # Summarize data: min and max per day per station
       station_data_summary <- station_data_d %>%
-        group_by(date, usaf_station, wban_station, icao) %>%
+        group_by(date, icao) %>%
         summarize(
           min_temperature = replace_inf_with_na(min(temperature, na.rm = TRUE)),
           max_temperature = replace_inf_with_na(max(temperature, na.rm = TRUE)),
@@ -140,14 +174,6 @@ if (nrow(all_weather_data) == 0) {
 } else {
   print("Data summarization completed successfully.")
 }
-
-airport_code <- dest %>% 
-  select(code, icao)
-
-all_weather_data <- all_weather_data %>% 
-  left_join(airport_code, by = "icao") %>% 
-  select(!c(usaf_station, wban_station)) %>% 
-  relocate(code, .after = date)
 
 # 136 stations contain data, could in the future use the lat long to geo_join to look for other nearby weather stations
 write_csv(all_weather_data, here("data", "daily_min_max", "all_weather_data.csv"))
